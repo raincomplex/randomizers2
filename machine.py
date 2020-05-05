@@ -87,6 +87,8 @@ class RandProbe:
                 p /= (act[1][1] - act[1][0] + 1)
             elif t == 'choice':
                 p /= len(act[1])
+            elif t == 'sample':
+                p /= math.factorial(len(act[1][0])) / math.factorial(len(act[1][0]) - act[1][1])
             elif t == 'shuffle':
                 p /= math.factorial(len(act[1]))
             else:
@@ -100,24 +102,33 @@ class RandProbe:
         '''
         i = len(self.actions) - 1
         while i >= 0:
-            t = self.types[self.actions[i][0]]
+            act = self.actions[i]
+            t = self.types[act[0]]
+            arg = act[1]
+            
             if t == 'randint':
-                self.actions[i][2] += 1
-                if self.actions[i][2] < self.actions[i][1][1] - self.actions[i][1][0] + 1:
-                    break
-                self.actions[i][2] = 0
+                # arg = (a, b)
+                count = arg[1] - arg[0] + 1
+                
             elif t == 'choice':
-                self.actions[i][2] += 1
-                if self.actions[i][2] < len(self.actions[i][1]):
-                    break
-                self.actions[i][2] = 0
+                # arg = seq
+                count = len(arg)
+                
+            elif t == 'sample':
+                # arg = (seq, n)
+                count = math.factorial(len(arg[0])) / math.factorial(len(arg[0]) - arg[1])
+                
             elif t == 'shuffle':
-                self.actions[i][2] += 1
-                if self.actions[i][2] < math.factorial(len(self.actions[i][1])):
-                    break
-                self.actions[i][2] = 0
+                # arg = seq
+                count = math.factorial(len(arg))
+                
             else:
                 raise Exception('unknown action')
+
+            act[2] += 1
+            if act[2] < count:
+                break
+            act[2] = 0
             i -= 1
 
         self.pos = 0
@@ -151,6 +162,23 @@ class RandProbe:
         # this allows seq to be a generator
         seq = tuple(seq)
         return seq[self.doAction('choice', seq)]
+
+    def sample(self, seq, n):
+        # this allows seq to be a generator
+        seq = list(seq)
+        assert 0 <= n <= len(seq), 'sample size outside valid range'
+
+        a = self.doAction('sample', (tuple(seq), n))
+        # use a fixed starting point
+        seq.sort()
+        out = []
+        # get the choices encoded in 'a'
+        for i in range(n):
+            k = a % (n - i)
+            a //= (n - i)
+            out.append(seq[k])
+            del seq[k]
+        return out
 
     def shuffle(self, seq):
         assert type(seq) == list

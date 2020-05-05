@@ -3,10 +3,15 @@ compare behavior of randomizers
 
 see run() for an outline of the algorithm
 '''
-import math, json, hashlib
+import math, json, hashlib, profile
 import rng, machine
 from cache import getcached, loadcached, savecached
 
+seqSize = 100  # sequence will be 1--2 times this value
+seqLead = 100  # lead will be 1--2 times this value
+seqPerRando = 100  # total sequences will be this * len(randos)
+
+profileRandomizer = None  # set to randomizer name or None
 useSequenceCache = True
 
 pyrandom = rng.Python()
@@ -69,7 +74,16 @@ def run(randos):
         for Rando in randos:
             progress(Rando.__name__)
             # find P(R), the next piece probabilities for R after S
-            probs[Rando] = probscache.get(machines[Rando], seq)
+            if Rando.__name__ == profileRandomizer:
+                profile.runctx('probs[Rando] = probscache.get(machines[Rando], seq)', {
+                    'probs': probs,
+                    'Rando': Rando,
+                    'probscache': probscache,
+                    'machines': machines,
+                    'seq': seq,
+                }, {})
+            else:
+                probs[Rando] = probscache.get(machines[Rando], seq)
 
         # compare the next-piece probabilities of each pair of randomizers
         for i, Rando in enumerate(randos):
@@ -131,17 +145,13 @@ def gensequences(randos):
     generate sequences from the given randomizers
     return [(randomizer_name, seq)]
     '''
-    seqsize = 100  # sequence will be 1--2 times this value
-    seqlead = 100  # lead will be 1--2 times this value
-    seqperrando = 100
-
     sequences = []
     for Rando in randos:
-        for i in range(seqperrando):
+        for i in range(seqPerRando):
             r = Rando(pyrandom)
-            for _ in range(int(seqlead * (1 + pyrandom.random()))):
+            for _ in range(int(seqLead * (1 + pyrandom.random()))):
                 r.next()
-            seq = ''.join(r.next() for _ in range(int(seqsize * (1 + pyrandom.random()))))
+            seq = ''.join(r.next() for _ in range(int(seqSize * (1 + pyrandom.random()))))
             sequences.append((Rando.__name__, seq))
 
     return sequences
@@ -247,7 +257,7 @@ if __name__ == '__main__':
     FullRandom
     FlatBag Metronome FlipFlop RepeatLast
     NES
-    Bag Bag2 DeepBag
+    Bag Bag2 DeepBag Balanced
     TGM TAP
     WeightFinite WeightInfinite
     '''.split()

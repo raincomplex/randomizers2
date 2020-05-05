@@ -74,8 +74,7 @@ class RepeatLast:
     def next(self):
         if self.last == None:
             self.last = self.rand.choice('jiltsoz')
+        elif self.rand.randint(1, 3) <= 2:
+            return self.last
         else:
-            r = self.rand.randint(0, 20)
-            if r >= 15:
-                self.last = 'jiltsoz'.replace(self.last, '')[r - 15]
-        return self.last
+            return self.rand.choice('jiltsoz')
