@@ -55,4 +55,14 @@ def run(randos):
 
 if __name__ == '__main__':
     import randos
-    run([randos.FullRandom, randos.NES, randos.Bag, randos.TGM])
+
+    include = '''
+    FullRandom
+    FlatBag Metronome FlipFlop RepeatLast
+    NES
+    Bag Bag2
+    TGM TAP
+    WeightFinite
+    '''.split()
+
+    run([randos.byname[name] for name in include])

@@ -4,47 +4,70 @@ extract state machines from normal randomizers
 use make() to get a state machine from a randomizer
 '''
 import math, inspect
+from cache import loadcached, savecached
 
-# TODO add probability threshold so that randomizers with infinite states can be partially mapped
-# TODO a version of make() which exploits piece-relabeling symmetry to factor the state graph
+# TODO a version of Machine.fill() which exploits piece-relabeling symmetry to factor the state graph
 
-def make(cls):
-    '''
-    visit all states. does not work with randomizers with an infinite number of states (yet).
-    return {state: {(nextstate, piecedealt): probability}}
-    '''
-    d = {}
-    tovisit = {None}
-    while tovisit:
-        state = tovisit.pop()
-        if state in d:
-            continue
-        d[state] = getedges(cls, state)
-        for (s, p) in d[state]:
-            if s not in d:
-                tovisit.add(s)
-    return d
+class Machine:
+    def __init__(self, Rando):
+        self.rando = Rando
+        self.cache = {}  # {state: {(nextstate, dealpiece): probability}}
+        self.changed = True
+        self.path = '%s.machine' % self.rando.__name__
 
-def getedges(cls, state):
-    '''
-    get all possible transitions from the given state.
-    return {(nextstate, piecedealt): probability}
-    '''
-    edges = {}
-    rand = RandProbe()
+    def load(self):
+        self.cache = loadcached(self.path) or {}
+        self.changed = False
 
-    while True:
-        inst = cls(rand, state)
-        p = inst.next()
-        s = inst.getstate()
-        edges[s, p] = edges.get((s, p), 0) + rand.probeProbability()
+    def wantsave(self):
+        # don't save machines whose randomizers are hinted 'infiniteStates'
+        return self.changed and not getattr(self.rando, 'infiniteStates', False)
 
-        try:
-            rand.probeNext()
-        except StopIteration:
-            break
+    def save(self):
+        if self.changed:
+            savecached(self.path, self.cache)
+            self.changed = False
 
-    return edges
+    def getedges(self, state):
+        '''
+        get all possible transitions from the given state.
+        return {(nextstate, piecedealt): probability}
+        '''
+        if state in self.cache:
+            return self.cache[state]
+
+        edges = {}
+        rand = RandProbe()
+        while True:
+            inst = self.rando(rand, state)
+            p = inst.next()
+            s = inst.getstate()
+
+            edges[s, p] = edges.get((s, p), 0) + rand.probeProbability()
+            if not rand.probeNext():
+                break
+
+        self.cache[state] = edges
+        self.changed = True
+        return edges
+
+    def fill(self):
+        '''
+        populate the cache with all states reachable from the start state (None)
+        - erases anything already in the cache
+        - does not work on randomizers with an infinite number of states
+        '''
+        self.cache = {}
+        tovisit = {None}
+        while tovisit:
+            state = tovisit.pop()
+            if state in self.cache:
+                continue
+            self.cache[state] = self.getedges(state)
+            for (s, _) in self.cache[state]:
+                if s not in self.cache:
+                    tovisit.add(s)
+        self.changed = True
 
 class RandProbe:
     'an RNG which allows walking all possible random paths'
@@ -71,7 +94,10 @@ class RandProbe:
         return p
 
     def probeNext(self):
-        'move the path to the next one'
+        '''
+        move the path to the next one
+        return True if there are paths remaining, and False otherwise
+        '''
         i = len(self.actions) - 1
         while i >= 0:
             t = self.types[self.actions[i][0]]
@@ -95,8 +121,7 @@ class RandProbe:
             i -= 1
 
         self.pos = 0
-        if i < 0:
-            raise StopIteration()
+        return (i >= 0)
 
     def doAction(self, typename, args):
         frame = inspect.currentframe().f_back.f_back

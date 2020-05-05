@@ -5,7 +5,9 @@ see run() for an outline of the algorithm
 '''
 import math, json, hashlib
 import rng, machine
-from cache import getcached
+from cache import getcached, loadcached, savecached
+
+useSequenceCache = True
 
 pyrandom = rng.Python()
 
@@ -26,63 +28,55 @@ def run(randos):
     at the end, the running totals for (R1, R2) are a measurement of how different the behaviors of the two randomizers are. a lower number means 'more similar'.
     '''
 
-    print('generating sequences')
-    sequences = getcached('sequences', lambda: gensequences(randos))
+    print('getting sequences')
+    if useSequenceCache:
+        sequences = []
+        for Rando in randos:
+            cachefile = '%s.sequences' % Rando.__name__
+            sequences += getcached(cachefile, lambda: gensequences([Rando]))
+    else:
+        sequences = gensequences(randos)
 
-    shown = set()
+    count = {}
     for name, seq in sequences:
-        if name not in shown:
-            print(name, seq)
-            shown.add(name)
+        c, ex = count.get(name, (0, ''))
+        count[name] = (c + 1, seq)
+    for name, (num, seq) in count.items():
+        print(num, name, seq)
     print()
 
-    print('getting state maps of randomizers')
-    for Rando in randos:
-        m = getStateMap(Rando)
-        print(Rando.__name__, len(m))
+    machines = {Rando: machine.Machine(Rando) for Rando in randos}
+    for mach in machines.values():
+        print('loading machine', mach.rando.__name__)
+        mach.load()
     print()
 
     print('testing randomizers against sequences')
+
+    distances = {}  # {<frozenset rando pair>: [distance]}
+    probscache = ProbsCache()
+
     # for each sequence, S
-    distances = {}  # running totals for pairs of randomizers
-    distcounts = {}  # number of sequences in the running totals
     for seqi, (seqRando, seq) in enumerate(sequences):
 
-        def genprobs():
-            # for each randomizer, R
-            probs = {}  # P()
-            for Rando in randos:
-                # find states R can be in after generating S
-                possible = possibleStates(Rando, seq)
+        def progress(msg=''):
+            print('\r%d/%d %s\x1b[K' % (seqi+1, len(sequences), msg), end='')
 
-                # find P(R), the next piece probabilities for R after S
-                # if no states were possible, there is no P(R). see below for what happens in this case
-                if possible:
-                    m = getStateMap(Rando)
-                    total = sum(possible.values())
-                    nxt = {c: 0 for c in 'jiltsoz'}
-                    # these two loops do a couple things at once:
-                    # - state-transitions are flattened out of the map, as 'nxt' is grouped by piece dealt
-                    # - the deal vectors are weighted by the possible states' weight
-                    for state, weight in possible.items():
-                        for (_, piece), prob in m[state].items():
-                            nxt[piece] += prob * weight / total
-                    # this is P(R)
-                    probs[Rando] = nxt
-            return probs
+        progress()
 
-        # cache probs
-        # hash needs to depend on randos and seq
-        slug = ','.join(sorted(Rando.__name__ for Rando in randos)) + ':' + seq
-        cachefile = 'probs.%s' % hashlib.sha1(slug.encode('utf8')).hexdigest()
-        probs = getcached(cachefile, lambda: genprobs())
+        # for each randomizer, R
+        probs = {}  # P()
+        for Rando in randos:
+            progress(Rando.__name__)
+            # find P(R), the next piece probabilities for R after S
+            probs[Rando] = probscache.get(machines[Rando], seq)
 
         # compare the next-piece probabilities of each pair of randomizers
         for i, Rando in enumerate(randos):
             for Rando2 in randos[i+1:]:
-                if Rando in probs and Rando2 in probs:
+                if probs[Rando] and probs[Rando2]:
                     dist = compareVectors(probs[Rando], probs[Rando2])
-                elif Rando in probs or Rando2 in probs:
+                elif probs[Rando] or probs[Rando2]:
                     # one randomizer couldn't generate this sequence. give a distance which is at least 1 (the maximum that compareVectors() returns)
                     # possible good values: 1, 2, 10
                     dist = 1
@@ -92,29 +86,44 @@ def run(randos):
 
                 if dist != None:
                     key = frozenset((Rando, Rando2))
-                    distances[key] = distances.get(key, 0) + dist
-                    distcounts[key] = distcounts.get(key, 0) + 1
+                    if key not in distances:
+                        distances[key] = []
+                    distances[key].append(dist)
 
-        # progress indicator
-        print('\r%d/%d' % (seqi+1, len(sequences)), end='')
-    print('\r\x1b[K', end='')
+    print('\r\x1b[K')
 
-    # apply appropriate scale
-    for key in distances:
-        distances[key] /= distcounts[key]
+    # save changed data
+    anysaved = False
+
+    if probscache.changed:
+        print('saving probs cache')
+        probscache.save()
+        anysaved = True
+
+    for mach in machines.values():
+        if mach.wantsave():
+            print('saving machine', mach.rando.__name__)
+            mach.save()
+            anysaved = True
+
+    if anysaved:
+        print()
 
     # output results
 
-    lst = [(dist, key) for key, dist in distances.items()]
+    lst = [(sum(points) / len(points), len(points), key) for key, points in distances.items()]
     lst.sort()
-    for dist, key in lst:
-        print('%.5f  %5d  %s' % (dist, distcounts[key], ' - '.join(Rando.__name__ for Rando in key)))
+    print('%7s  %5s  %s' % ('avgdist', 'count', 'randomizer pair'))
+    for avg, count, key in lst:
+        key = ' - '.join(Rando.__name__ for Rando in key)
+        print('%.5f  %5d  %s' % (avg, count, key))
     print()
 
     with open('analyze.json', 'w') as f:
         d = {}
-        for dist, key in lst:
-            d[' - '.join(Rando.__name__ for Rando in key)] = dist
+        for key, points in distances.items():
+            key = ' - '.join(Rando.__name__ for Rando in key)
+            d[key] = points
         json.dump(d, f)
 
 def gensequences(randos):
@@ -137,44 +146,80 @@ def gensequences(randos):
 
     return sequences
 
-statemapcache = {}
+class ProbsCache:
+    'cache probs vector, keyed by (Rando, seq)'
 
-def getStateMap(Rando):
-    '''
-    return {state: {(nextstate, dealpiece): probability}}
-    uses machine.make(Rando) to get the state map.
-    safe to call repeatedly because this function uses two caches: one on disk, and one in memory.
-    '''
-    if Rando not in statemapcache:
-        cachefile = '%s.%s.statemap' % (Rando.__module__, Rando.__qualname__)
-        statemapcache[Rando] = getcached(cachefile, lambda: machine.make(Rando))
-    return statemapcache[Rando]
+    def __init__(self):
+        self.cache = loadcached('probs') or {}
+        self.changed = False
 
-def possibleStates(Rando, seq):
+    def get(self, mach, seq):
+        key = '%s:%s' % (mach.rando.__name__, seq)
+        key = hashlib.sha1(key.encode('utf8')).digest()
+        if key not in self.cache:
+            self.cache[key] = calcProbsAfter(mach, seq)
+            self.changed = True
+        return self.cache[key]
+
+    def save(self):
+        if self.changed:
+            savecached('probs', self.cache)
+            self.changed = False
+
+def calcProbsAfter(mach, seq):
+    'calculate the next-piece probabilities for Rando after it has just output seq'
+
+    # find states R can be in after generating S
+    possible = possibleStates(mach, seq)
+
+    # if no states were possible, there is no P(R). see 'compare' loops below for what happens in this case
+    if not possible:
+        return None
+
+    total = sum(possible.values())
+    nxt = {c: 0 for c in 'jiltsoz'}
+    # these two loops do a couple things at once:
+    # - state-transitions are flattened out of the map, as 'nxt' is grouped by piece dealt
+    # - the deal vectors are weighted by the possible states' weight
+    for state, weight in possible.items():
+        for (_, piece), prob in mach.getedges(state).items():
+            nxt[piece] += prob * weight / total
+    return nxt
+
+def possibleStates(mach, seq):
     '''
     find possible states, as if 'seq' was just generated by the randomizer
     weighted by relative likelihood
     
     return {state: weight}
     '''
-    # states = {state: {(nextstate, dealpiece): probability}}
-    states = getStateMap(Rando)
 
-    # did a bunch of comparisons between equal weights and random weights. the difference is small
-    possible = {state: 1 for state in states}
-    #possible = {state: pyrandom.random() for state in states}
-    #possible = {state: 1 / pyrandom.randint(1, 1e9) for state in states}
-
-    for p in seq:
+    def iterate(piece):
+        nonlocal possible
         new = {}
         for state, weight in possible.items():
-            for (nextstate, piece), prob in states[state].items():
-                if piece == p:
+            for (nextstate, p), prob in mach.getedges(state).items():
+                if not piece or p == piece:
                     new[nextstate] = new.get(nextstate, 0) + prob * weight
 
-        # normalize weights and iterate at the same time
+        # normalize weights and update 'possible' at the same time
         total = sum(new.values())
         possible = {state: prob / total for state, prob in new.items()}
+
+    # starting from the initial state, find at least one state that can deal the first piece of the sequence
+    possible = {None: 1}
+    candeal = False
+    while not candeal:
+        for state in possible:
+            for (s, p) in mach.getedges(state):
+                if p == seq[0]:
+                    candeal = True
+
+        if not candeal:
+            iterate(None)
+
+    for p in seq:
+        iterate(p)
         if not possible:
             break
 
@@ -202,8 +247,12 @@ if __name__ == '__main__':
     FullRandom
     FlatBag Metronome FlipFlop RepeatLast
     NES
-    Bag Bag2
+    Bag Bag2 DeepBag
     TGM TAP
+    WeightFinite WeightInfinite
     '''.split()
+
+    # remove 'commented' randomizers
+    include = [name for name in include if not name.startswith('#')]
 
     run([randos.byname[name] for name in include])
