@@ -72,9 +72,6 @@ class RepeatLast:
         return self.last
 
     def next(self):
-        if self.last == None:
+        if self.last == None or self.rand.randint(1, 3) == 1:
             self.last = self.rand.choice('jiltsoz')
-        elif self.rand.randint(1, 3) <= 2:
-            return self.last
-        else:
-            return self.rand.choice('jiltsoz')
+        return self.last
