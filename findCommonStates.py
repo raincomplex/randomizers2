@@ -48,7 +48,13 @@ while True:
                 key, _ = func(s)
                 unlabeled[key] = unlabeled.get(key, 0) + n
             print('unlabeled')
-            for s, n in sorted(unlabeled.items(), key=lambda t: t[1])[-30:]:
-                print('%.10f  %s' % (n / total, s))
+
+            show = list(sorted(unlabeled.items(), key=lambda t: t[1]))
+            cumul = []
+            for s, n in reversed(show):
+                prev = cumul[0] if cumul else 0
+                cumul.insert(0, prev + n / total)
+            for i, (s, n) in list(enumerate(show))[-30:]:
+                print('%.10f  %.10f  %s' % (n / total, cumul[i], s))
             print('total', total)
             print()

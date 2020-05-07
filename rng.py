@@ -15,6 +15,9 @@ import time, random
 class Python(random.Random):
     "python's mersenne twister"
 
+class Secure(random.SystemRandom):
+    "cryptographically secure rng, such as from /dev/urandom"
+
 class Simple:
     '''
     an abstract RNG for producing integers within some size range

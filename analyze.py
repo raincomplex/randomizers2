@@ -7,9 +7,25 @@ import math, json, hashlib, profile
 import rng, machine
 from cache import getcached, loadcached, savecached
 
-seqSize = 100  # sequence will be 1--2 times this value
+# ct says 25 is good enough lead-in for any interesting randomizer
+# TODO investigate stability of outputs while varying these parameters
+# - get a measure of the variation of outputs
+# - decrease parameters until the outputs start to destabilize
+
+# FIXME rename randos dir to randomizers (to prevent name clash with randos lists)
+# FIXME rename rng.py so rng is available for variables
+# FIXME pass Machines around instead of Randos?
+
+seqSize = 50  # sequence will be 1--2 times this value
 seqLead = 100  # lead will be 1--2 times this value
-seqPerRando = 100  # total sequences will be this * len(randos)
+seqCut = 25  # number of prefixes to cut from each sequence (see calcProbsAfterCut())
+seqPerRando = 7
+
+assert seqCut <= seqSize / 2
+# total sequences = len(randos) * seqPerRando (* setCut)
+
+# when only one randomizer can generate a sequence, the distance between them is reported as this value (which should be at least 1, which is the maximum distance compareVectors() returns)
+penaltyDistance = 1  # possibly good values: 1, 2, 10
 
 profileRandomizer = None  # set to randomizer name or None
 useSequenceCache = True
@@ -59,7 +75,7 @@ def run(randos):
     print('testing randomizers against sequences')
 
     distances = {}  # {<frozenset rando pair>: [distance]}
-    probscache = ProbsCache()
+    probscache = ProbsCache(sequences)
 
     # for each sequence, S
     for seqi, (seqRando, seq) in enumerate(sequences):
@@ -73,6 +89,7 @@ def run(randos):
         probs = {}  # P()
         for Rando in randos:
             progress(Rando.__name__)
+
             # find P(R), the next piece probabilities for R after S
             if Rando.__name__ == profileRandomizer:
                 profile.runctx('probs[Rando] = probscache.get(machines[Rando], seq)', {
@@ -92,8 +109,7 @@ def run(randos):
                     dist = compareVectors(probs[Rando], probs[Rando2])
                 elif probs[Rando] or probs[Rando2]:
                     # one randomizer couldn't generate this sequence. give a distance which is at least 1 (the maximum that compareVectors() returns)
-                    # possible good values: 1, 2, 10
-                    dist = 1
+                    dist = penaltyDistance
                 else:
                     # neither randomizer could generate this sequence. don't even count it
                     dist = None
@@ -157,17 +173,25 @@ def gensequences(randos):
     return sequences
 
 class ProbsCache:
-    'cache probs vector, keyed by (Rando, seq)'
+    '''
+    cache probs vector, keyed by (Rando, seq)
+    the whole cache is also keyed to the sequences list, so if they change it resets.
+    '''
 
-    def __init__(self):
+    def __init__(self, sequences):
         self.cache = loadcached('probs') or {}
+
+        seqhash = ':'.join(sorted(t[1] for t in sequences))
+        seqhash = hashlib.sha1(seqhash.encode('utf8')).digest()
+        if self.cache.get('seqhash') != seqhash:
+            self.cache = {'seqhash': seqhash}
+
         self.changed = False
 
     def get(self, mach, seq):
-        key = '%s:%s' % (mach.rando.__name__, seq)
-        key = hashlib.sha1(key.encode('utf8')).digest()
+        key = (mach.rando.__name__, seq)
         if key not in self.cache:
-            self.cache[key] = calcProbsAfter(mach, seq)
+            self.cache[key] = calcProbsAfterCut(mach, seq)
             self.changed = True
         return self.cache[key]
 
@@ -175,6 +199,23 @@ class ProbsCache:
         if self.changed:
             savecached('probs', self.cache)
             self.changed = False
+
+def calcProbsAfterCut(mach, seq):
+    '''
+    call calcProbsAfter() on variations of seq with prefixes removed
+    return the average of the probs, or None if none were possible
+    '''
+    avg = {p: 0 for p in 'jiltsoz'}
+    for i in range(seqCut):
+        nxt = calcProbsAfter(mach, seq[i:])
+        if nxt != None:
+            for p in 'jiltsoz':
+                avg[p] += nxt[p]
+    if sum(avg.values()) == 0:
+        return None
+    for p in 'jiltsoz':
+        avg[p] /= seqCut
+    return avg
 
 def calcProbsAfter(mach, seq):
     'calculate the next-piece probabilities for Rando after it has just output seq'
@@ -253,13 +294,19 @@ def compareVectors(a, b):
 if __name__ == '__main__':
     import randos
 
-    include = '''
+    '''
     FullRandom
-    FlatBag Metronome FlipFlop RepeatLast
+    Constant ConstantSnakes ConstantO
+    Metronome FlipFlop RepeatLast
     NES
     Bag Bag2 DeepBag Balanced
     TGM TAP
     WeightFinite WeightInfinite
+    SeamlessBag SeamlessBag2 SeamlessBag3
+    '''
+    
+    include = '''
+    TGM Bag Constant FullRandom #DeepBag Balanced WeightInfinite
     '''.split()
 
     # remove 'commented' randomizers

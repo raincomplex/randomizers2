@@ -30,13 +30,12 @@ def factory(name, frombag=5, fromrand=2, fromfreq=2):
         def next(self):
             if not self.metabag:
                 self.metabag = list('b' * frombag + 'r' * fromrand + 'f' * fromfreq)
+                self.bag = list('jiltsoz' * math.ceil(frombag / 7))
 
             t = self.rand.choice(self.metabag)
             self.metabag.remove(t)
 
             if t == 'b':
-                if not self.bag:
-                    self.bag = list('jiltsoz' * math.ceil(frombag / 7))
                 p = self.rand.choice(self.bag)
                 self.bag.remove(p)
 
@@ -50,14 +49,12 @@ def factory(name, frombag=5, fromrand=2, fromfreq=2):
             else:
                 raise ValueError('impossible')
 
-            self.countpiece(p)
-            return p
-
-        def countpiece(self, p):
             self.counts[p] += 1
             if 0 not in self.counts.values():
                 for c in 'jiltsoz':
                     self.counts[c] -= 1
+
+            return p
 
     C.__name__ = name
     C.__qualname__ = name

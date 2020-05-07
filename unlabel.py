@@ -58,6 +58,7 @@ def _(state, labels):
     return labels
 
 
+@unlabeler('WeightFinite')
 @unlabeler('WeightInfinite')
 def _(state):
     if state == None:
@@ -70,6 +71,7 @@ def _(state):
         labels += p
     return tuple(out), labels
 
+@relabeler('WeightFinite')
 @relabeler('WeightInfinite')
 def _(state, labels):
     if state == None:

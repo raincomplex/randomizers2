@@ -1,22 +1,29 @@
 
-class FlatBag:
-    'a constant sequence repeating forever'
+def constantFactory(name, sequence):
+    class C:
+        'a constant sequence repeating forever'
 
-    sequence = 'jiltsoz'
+        def __init__(self, rand, state=None):
+            if state == None:
+                self.i = rand.randint(0, len(sequence) - 1)
+            else:
+                self.i = state
 
-    def __init__(self, rand, state=None):
-        if state == None:
-            self.i = rand.randint(0, len(self.sequence) - 1)
-        else:
-            assert 0 <= state < len(self.sequence)
-            self.i = state
+        def getstate(self):
+            return self.i
 
-    def getstate(self):
-        return self.i
+        def next(self):
+            self.i = (self.i + 1) % len(sequence)
+            return sequence[self.i]
 
-    def next(self):
-        self.i = (self.i + 1) % len(self.sequence)
-        return self.sequence[self.i]
+    C.__name__ = name
+    C.__qualname__ = name
+    return C
+
+Constant = constantFactory('Constant', 'jiltsoz')
+ConstantSnakes = constantFactory('ConstantSnakes', 'sz')
+ConstantO = constantFactory('ConstantO', 'o')
+ConstantZ = constantFactory('ConstantZ', 'z')
 
 class Metronome:
     'deal an I every 7 pieces, and everything else is random non-I pieces'
